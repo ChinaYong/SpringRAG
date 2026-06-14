@@ -9,7 +9,6 @@ import com.auth0.jwt.interfaces.DecodedJWT;
 public class JwtUtils {
     
     private static final String SECRET_KEY = "AIplus_RAG_App_Secret_Key_2026";
-    
     private static final long EXPIRATION_TIME = 7 * 24 * 60 * 60; // JWT 有效期：一周
 
     // 根据用户ID 生成 JWT

@@ -12,4 +12,7 @@ public interface UserService extends IService<User> {
 
     // 用户登录
     public String login(UserLoginDTO userLoginDTO);
+
+    // 用户退出
+    public void logout(String token);
 }

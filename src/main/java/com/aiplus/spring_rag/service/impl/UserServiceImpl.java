@@ -1,5 +1,8 @@
 package com.aiplus.spring_rag.service.impl;
 
+import java.util.concurrent.TimeUnit;
+
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import com.aiplus.spring_rag.dto.UserLoginDTO;
@@ -11,9 +14,14 @@ import com.aiplus.spring_rag.utils.JwtUtils;
 import com.aiplus.spring_rag.utils.PasswordUtils;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 
+import lombok.RequiredArgsConstructor;
+
 @Service
+@RequiredArgsConstructor
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
     
+    private final StringRedisTemplate stringRedisTemplate;
+
     @Override
     public void register(UserRegisterDTO userRegisterDTO) {
         if (this.lambdaQuery().eq(User::getUsername, userRegisterDTO.getUsername()).one() != null) {
@@ -36,5 +44,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             return JwtUtils.generateToken(user.getId());
         }
         throw new RuntimeException("用户名或密码错误！");
+    }
+
+    @Override
+    public void logout(String token) {
+
+        if (token != null && !token.isBlank()) {
+            stringRedisTemplate.opsForValue().set("blacklist:" + token, "invalid", 7, TimeUnit.DAYS);
+        }
+
     }
 }

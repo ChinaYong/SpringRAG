@@ -1,5 +1,5 @@
 ---
-trigger: manual
+trigger: model_decision
 description: 记录了项目的方向以及进度
 ---
 
@@ -31,7 +31,7 @@ description: 记录了项目的方向以及进度
 ### 🛡️ 阶段二：用户认证与安全模块
 
 - [x] 接口设计：注册、登录 API。
-- [ ] 业务开发：整合 JWT 校验、密码加密，以及 Redis 的 Token 黑名单机制。
+- [x] 业务开发：整合 JWT 校验、密码加密，以及 Redis 的 Token 黑名单机制。
 
 ### 🤖 阶段三：智能体与模型对话核心模块
 
