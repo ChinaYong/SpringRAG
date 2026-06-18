@@ -1,0 +1,13 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "indexing": {
+    "enabled": true,
+    "provider": "openrouter",
+    "model": "qwen/qwen3-embedding-8b",
+    "gemini": {
+      "apiKey": "AIzaSyCPKqJ41W_iLO8_EIzQqoFjv3N04_6Hdag"
+    },
+    "dimension": 1536,
+    "vectorStore": "lancedb"
+  }
+}

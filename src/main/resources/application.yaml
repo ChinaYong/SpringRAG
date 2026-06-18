@@ -15,9 +15,19 @@ spring:
 
   data:
     redis:
-      host: 192.168.124.3
+      host: localhost
       port: 6379
 
   output:
     ansi:
       enabled: ALWAYS
+
+
+
+# 文件存储
+file:
+  storage:
+    base-path: ./storage/files  # 文件存储基础路径
+    max-file-size: 52428800 # 50MB
+    allowed-file-types: pdf,txt,md,docx,jpg,png # 允许的文件类型
+    temp-path: ./storage/temp # 临时文件存储路径
