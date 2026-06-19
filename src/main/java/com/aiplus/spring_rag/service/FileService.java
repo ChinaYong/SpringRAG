@@ -46,11 +46,12 @@ public class FileService {
             System.out.println("临时文件创建失败，重点检查重复文件名！");
             e.printStackTrace();
         }
-        // 文件临时存到磁盘同时求 SHA-256，并根据魔数检查文件的类型是否与文件名一致
+        // 文件临时存到磁盘同时求 SHA-256
         String sha256Hash = null;
         try (InputStream inputStream = file.getInputStream();
             OutputStream outputStream = Files.newOutputStream(tempFilePath)) {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            
             byte[] buffer = new byte[8192];
             int bytesRead;
             while ((bytesRead = inputStream.read(buffer)) != -1) {
@@ -58,19 +59,16 @@ public class FileService {
                 digest.update(buffer, 0, bytesRead);
             }
             byte[] hashBytes = digest.digest();
-            StringBuilder hexString = new StringBuilder();
-            char[] HEX = "0123456789abcdef".toCharArray();
-            for (byte b : hashBytes) {
-                hexString.append(HEX[(b >> 4) & 0xF])
-                        .append(HEX[b & 0xF]);
-            }
-            sha256Hash = hexString.toString();
+            sha256Hash = FileUtils.getHexString(hashBytes);
         } catch (IOException e){
             System.out.println("上传文件读取异常！");
             e.printStackTrace();
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException("未找到 SHA-256 算法，JDK 异常");
         }
+
+        // 检查文件的合法性
+        FileUtils.isExtensionMatchMagicType(tempFilePath.toString());
 
         // 根据文件 SHA-256 重新存储文件并删除临时文件
         if (sha256Hash != null) {

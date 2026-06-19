@@ -12,16 +12,13 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 @Data
-@TableName("file_info")
-public class FileInfo {
+@TableName("user_file_info")
+public class UserFileInfo {
     @TableId(type = IdType.AUTO)
     private Integer id;
-    private Integer userId;
-    private String name;
-    private String path;
-    private Long size;
-    private FileStatus status;
-    private String type;
+    private Integer userId; // 文件关联用户
+    private String name;    // 文件原始名称
+    private Integer fileId; // 文件 id
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
@@ -29,21 +26,4 @@ public class FileInfo {
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
 
-    enum FileStatus {
-        PENDING("pending"),
-        PROCESSING("processing"),
-        SUCCESS("success"),
-        FAILED("failed");
-
-        @EnumValue
-        private final String value;
-
-        private FileStatus(String value) {
-            this.value = value;
-        }
-
-        public String getValue() {
-            return value;
-        }
-    }
 }
