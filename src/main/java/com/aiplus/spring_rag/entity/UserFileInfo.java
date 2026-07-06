@@ -2,7 +2,6 @@ package com.aiplus.spring_rag.entity;
 
 import java.time.LocalDateTime;
 
-import com.baomidou.mybatisplus.annotation.EnumValue;
 import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;

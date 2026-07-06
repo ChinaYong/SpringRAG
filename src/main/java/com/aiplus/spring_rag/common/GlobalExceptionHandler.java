@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     
+    // TODO：需要重构整个日志和异常处理
     @ExceptionHandler(Exception.class)
     public Result<String> handleException(Exception e) {
         e.printStackTrace();

@@ -46,23 +46,39 @@ CREATE TABLE `chat_message` (
     `file_ids` JSON COMMENT '用户上传的附件',
     `create_time` DATETIME COMMENT '创建时间',
     `update_time` DATETIME COMMENT '更新时间',
-    PRIMARY KEY (`session_id`, `order`),
-    FOREIGN KEY (`session_id`) REFERENCES `session`(`id`)
+    PRIMARY KEY (`session_id`, `order`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='对话消息表';
 
+DROP TABLE IF EXISTS `user_file_info`;
+DROP TABLE IF EXISTS `file_storage`;
+-- 清理旧重构遗留的单表（重构前用单表 file_info 存储文件）
 DROP TABLE IF EXISTS `file_info`;
-CREATE TABLE `file_info` (
-    `id` INT AUTO_INCREMENT COMMENT '文件ID',
-    `user_id` INT NOT NULL COMMENT '文件所属用户ID',
-    `name` VARCHAR(255) NOT NULL COMMENT '文件原始名称',
-    `path` VARCHAR(255) NOT NULL COMMENT '文件相对路径',
-    `size` BIGINT NOT NULL COMMENT '文件大小',
-    `status` ENUM('pending', 'processing', 'success', 'failed') NOT NULL COMMENT '文件状态',
-    `type` VARCHAR(10) NOT NULL COMMENT '文件类型',
+
+CREATE TABLE `file_storage` (
+    `id` INT AUTO_INCREMENT COMMENT '文件存储ID',
+    `sha256` VARCHAR(64) NOT NULL COMMENT '文件 SHA-256',
+    `storage_path` VARCHAR(255) NOT NULL COMMENT '基于 SHA-256 的存储路径',
+    `size` BIGINT NOT NULL COMMENT '文件大小（字节）',
+    `extension` VARCHAR(10) NOT NULL COMMENT '文件真实扩展名',
+    `ref_count` INT NOT NULL DEFAULT 1 COMMENT '文件引用计数（同一文件被多次引用时累加）',
+    `vectorized_status` TINYINT NOT NULL DEFAULT 0 COMMENT '向量化状态（0:待解析 1:解析中 2:已完成 3:失败）',
     `create_time` DATETIME COMMENT '创建时间',
     `update_time` DATETIME COMMENT '更新时间',
-    PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='文件信息表';
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_sha256` (`sha256`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='文件存储表';
+
+CREATE TABLE `user_file_info` (
+    `id` INT AUTO_INCREMENT COMMENT '文件信息ID',
+    `user_id` INT NOT NULL COMMENT '文件所属用户ID',
+    `name` VARCHAR(255) NOT NULL COMMENT '文件原始名称',
+    `file_id` INT NOT NULL COMMENT '文件存储表中的ID（参照 file_storage.id）',
+    `create_time` DATETIME COMMENT '创建时间',
+    `update_time` DATETIME COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_file_id` (`file_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='用户文件信息表';
 
 DROP TABLE IF EXISTS `model_provider`;
 CREATE TABLE `model_provider` (

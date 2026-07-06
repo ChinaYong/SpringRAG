@@ -9,7 +9,6 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -19,9 +18,10 @@ import java.util.Map;
 public class FileUtils {
     
     // 允许用户上传的文件类型
-    private static List<String> allowedFileTypes = List.of(".txt", ".md", ".csv", ".json", ".xml",
-        ".log", ".yaml", ".java", ".py", ".c", ".cpp", ".pdf", ".png", ".jpg"
-    ); 
+    // 文本文件类型
+    private static List<String> textFileTypes = List.of(".txt", ".md", ".csv", ".json", ".java", ".py", ".c", ".cpp");
+    // 其他类型
+    private static List<String> otherFileTypes = List.of(".pdf", ".png", ".jpg");
 
     /**
      * 允许用户上传的魔数类型"25504446", "FFD8", "89504E47"
@@ -47,7 +47,7 @@ public class FileUtils {
         if (fileName == null || fileName.lastIndexOf(".") == -1) {
             return "";
         }
-        return fileName.substring(fileName.lastIndexOf("."));
+        return fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
     }
 
     // 获取不包括文件扩展名的文件名
@@ -61,37 +61,28 @@ public class FileUtils {
     // 依据文件扩展名检查用户上传的文件是否合法
     public static boolean isAllowedFileType(String fileName) {
         String fileExtension = getFileExtension(fileName);
-        return allowedFileTypes.contains(fileExtension.toLowerCase());
+        return textFileTypes.contains(fileExtension) || otherFileTypes.contains(fileExtension);
     }
 
     // 检查文件扩展名的扩展名与魔数是否匹配
     public static boolean isExtensionMatchMagicType(String filePath) {
         String fileExtension = getFileExtension(filePath);
 
-        // 对不同文件类型进行判断
+        // 对于文本文件
+        if (textFileTypes.contains(fileExtension)) {
+            return isTextFile(filePath);
+        }
+
+        // 对其他非文本文件类型进行判断
         switch (fileExtension) {
-            case ".txt":
-            case ".md":
-            case ".csv":
-            case ".json":
-            case ".xml":
-            case ".log":
-            case ".yaml":
-            case ".java":
-            case ".py":
-            case ".c":
-            case ".cpp":
-                return isTextFile(filePath);
             case ".pdf":
                 return isPdfFile(filePath);
-
             case ".jpg":
                 return isJpgFile(filePath);
             case ".png":
                 return isPngFile(filePath);
             default:
                 throw new RuntimeException("不支持的文件类型！");
-
         }
         
     }
@@ -152,9 +143,16 @@ public class FileUtils {
             throw new RuntimeException("文件路径为空！");
         }
 
-        Path path = Path.of(filePath);
         byte[] bytes = new byte[4];
-
+        Path path = Path.of(filePath);
+        try (InputStream inputStream = Files.newInputStream(path, null)) {
+            inputStream.read(bytes);
+        } catch (IOException e) {
+            System.out.println("判断是否为PDF文件时读取异常");
+            e.printStackTrace();
+            throw new RuntimeException("判断是否为PDF文件时读取异常");
+        }
+        
         return "25504446".equals(getHexString(bytes));
     }
 
@@ -165,7 +163,13 @@ public class FileUtils {
 
         Path path = Path.of(filePath);
         byte[] bytes = new byte[2];
-
+        try (InputStream inputStream = Files.newInputStream(path, null)) {
+            inputStream.read(bytes);
+        } catch (IOException e) {
+            System.out.println("判断是否为JPG文件时读取异常");
+            e.printStackTrace();
+            throw new RuntimeException("判断是否为JPG文件时读取异常");
+        }
         return "FFD8".equals(getHexString(bytes));
     }
 
@@ -176,7 +180,13 @@ public class FileUtils {
 
         Path path = Path.of(filePath);
         byte[] bytes = new byte[4];
-
+        try (InputStream inputStream = Files.newInputStream(path, null)) {
+            inputStream.read(bytes);
+        } catch (IOException e) {
+            System.out.println("判断是否为PNG文件时读取异常");
+            e.printStackTrace();
+            throw new RuntimeException("判断是否为PNG文件时读取异常");
+        }
         return "89504E47".equals(getHexString(bytes));
     }
 

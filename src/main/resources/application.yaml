@@ -22,12 +22,28 @@ spring:
     ansi:
       enabled: ALWAYS
 
+  ai:
+    vectorstore:
+      qdrant:
+        host: 192.168.124.3
+        port: 6333
+        api-key:
+        collection-name: spring-rag
+        use-tls: false
+        initialize-schema: true
 
+    google:
+      genai:
+        embedding:
+          api-key: 
+          text:
+            options:
+              model: gemini-embedding-2
 
 # 文件存储
 file:
   storage:
-    base-path: ./storage/files  # 文件存储基础路径
+    base-path: ./storage/files # 文件存储基础路径
     max-file-size: 52428800 # 50MB
     allowed-file-types: pdf,txt,md,docx,jpg,png # 允许的文件类型
     temp-path: ./storage/temp # 临时文件存储路径
