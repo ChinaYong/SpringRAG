@@ -16,28 +16,38 @@ import java.util.Map;
  * 文件处理相关的工具类
  */
 public class FileUtils {
-    
+
     // 允许用户上传的文件类型
-    // 文本文件类型
-    private static List<String> textFileTypes = List.of(".txt", ".md", ".csv", ".json", ".java", ".py", ".c", ".cpp");
+    private static List<String> ALLOWED_FILE_TYPES = List.of(
+            ".txt",
+            ".md",
+            ".csv",
+            ".json",
+            ".java",
+            ".py",
+            ".c",
+            ".cpp",
+            ".pdf",
+            ".png",
+            ".jpg");
+
     // 其他类型
-    private static List<String> otherFileTypes = List.of(".pdf", ".png", ".jpg");
+    // TODO：图片文件需要增加一种直接发送给原生支持多模态模型处理的途径，对于非多模态模型，则需要通过一种方式解读图片转换成文本，然后发送给模型
 
     /**
      * 允许用户上传的魔数类型"25504446", "FFD8", "89504E47"
      * 按照声明顺序：pdf、jpg、png
-     */ 
+     */
     private static Map<String, String> allowedMagicTypes = Map.of(
-        ".pdf", "25504446",
-        ".jpg", "FFD8",
-        ".png", "89504E47"
-    );
+            ".pdf", "25504446",
+            ".jpg", "FFD8",
+            ".png", "89504E47");
 
     // UTF-8、UTF-16 LE、 UTF-16 BE
     private static List<String> utfHead = List.of("EFBBBF", "FFFE", "FEFF");
 
     // 十六进制转换辅助字符数组
-    private static char[] HEX = "0123456789abcdef".toCharArray();
+    private static char[] HEX = "0123456789ABCDEF".toCharArray();
 
     // 文本编码名
     private static List<String> textEncodings = List.of("UTF-8", "UTF-16LE", "UTF-16BE", "GBK");
@@ -61,20 +71,25 @@ public class FileUtils {
     // 依据文件扩展名检查用户上传的文件是否合法
     public static boolean isAllowedFileType(String fileName) {
         String fileExtension = getFileExtension(fileName);
-        return textFileTypes.contains(fileExtension) || otherFileTypes.contains(fileExtension);
+        return ALLOWED_FILE_TYPES.contains(fileExtension);
     }
 
     // 检查文件扩展名的扩展名与魔数是否匹配
     public static boolean isExtensionMatchMagicType(String filePath) {
         String fileExtension = getFileExtension(filePath);
 
-        // 对于文本文件
-        if (textFileTypes.contains(fileExtension)) {
-            return isTextFile(filePath);
-        }
-
-        // 对其他非文本文件类型进行判断
+        // 根据文件类型进行判断
         switch (fileExtension) {
+            case ".txt":
+            case ".md":
+            case ".csv":
+            case ".json":
+            case ".java":
+            case ".py":
+            case ".c":
+            case ".cpp":
+                return isTextFile(filePath);
+
             case ".pdf":
                 return isPdfFile(filePath);
             case ".jpg":
@@ -84,13 +99,12 @@ public class FileUtils {
             default:
                 throw new RuntimeException("不支持的文件类型！");
         }
-        
+
     }
-        
 
     // 判断文件是否是文本文件
     public static boolean isTextFile(String filePath) {
-        
+
         Path path = Path.of(filePath);
 
         byte[] readBuffer = new byte[4096];
@@ -102,23 +116,23 @@ public class FileUtils {
                 int i = 0;
                 if (n >= 2) {
                     for (; i < 2; i++) {
-                        sb.append(HEX[readBuffer[i] >>> 4]);
-                        sb.append(HEX[readBuffer[i] & 0x0f]);
+                        int unsigned = readBuffer[i] & 0xff;
+                        sb.append(HEX[unsigned >>> 4]);
+                        sb.append(HEX[unsigned & 0x0f]);
                     }
                     if (utfHead.contains(sb.toString())) {
                         return true;
                     }
                 } else if (n > 2) {
                     sb.append(HEX[readBuffer[i] >>> 4])
-                        .append(HEX[readBuffer[i] & 0x0f]);
+                            .append(HEX[readBuffer[i] & 0x0f]);
                     if (utfHead.contains(sb.toString())) {
                         return true;
                     }
                 }
             }
         } catch (IOException e) {
-            System.out.println("判断是否为文本文件时读取异常！");
-            e.printStackTrace();
+            throw new RuntimeException("判断是否为文本文件时读取异常", e);
         }
 
         // 零字节排除
@@ -152,7 +166,7 @@ public class FileUtils {
             e.printStackTrace();
             throw new RuntimeException("判断是否为PDF文件时读取异常");
         }
-        
+
         return "25504446".equals(getHexString(bytes));
     }
 
@@ -194,9 +208,9 @@ public class FileUtils {
 
         try {
             CharsetDecoder decoder = Charset.forName(encoding).newDecoder();
-            decoder.onMalformedInput(CodingErrorAction.REPORT)  // 不符合编码格式时报错
-                //.onUnmappableCharacter(CodingErrorAction.REPORT)    // 符合某种编码但与指定编码不符时报错
-                .decode(ByteBuffer.wrap(readBuffer));
+            decoder.onMalformedInput(CodingErrorAction.REPORT) // 不符合编码格式时报错
+                    // .onUnmappableCharacter(CodingErrorAction.REPORT) // 符合某种编码但与指定编码不符时报错
+                    .decode(ByteBuffer.wrap(readBuffer));
             return true;
         } catch (CharacterCodingException e) {
             System.out.println("字符集解码异常！");
@@ -205,12 +219,13 @@ public class FileUtils {
         }
     }
 
-    public static  String getHexString(byte[] bytes) {
+    public static String getHexString(byte[] bytes) {
         StringBuilder sb = new StringBuilder();
 
         for (byte b : bytes) {
-            sb.append(HEX[b >>> 4]);
-            sb.append(HEX[b & 0x0f]);
+            int unsigned = b & 0xff;
+            sb.append(HEX[unsigned >>> 4]);
+            sb.append(HEX[unsigned & 0x0f]);
         }
 
         return sb.toString();

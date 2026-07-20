@@ -6,6 +6,6 @@ import com.aiplus.spring_rag.entity.UserFileInfo;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
 @Mapper
-public interface FileInfoMapper extends BaseMapper<UserFileInfo> {
+public interface UserFileInfoMapper extends BaseMapper<UserFileInfo> {
 
 }

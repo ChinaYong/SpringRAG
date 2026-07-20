@@ -19,7 +19,7 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
-    
+
     private final StringRedisTemplate stringRedisTemplate;
 
     @Override
@@ -29,7 +29,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
         // 加密密码
         userRegisterDTO.setPassword(PasswordUtils.hashPassword(userRegisterDTO.getPassword()));
-        //添加用户
+        // 添加用户
         User user = new User(userRegisterDTO);
         this.save(user);
     }
@@ -52,6 +52,5 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (token != null && !token.isBlank()) {
             stringRedisTemplate.opsForValue().set("blacklist:" + token, "invalid", 7, TimeUnit.DAYS);
         }
-
     }
 }

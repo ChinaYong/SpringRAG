@@ -1,12 +1,12 @@
 package com.aiplus.spring_rag.config;
 
 import org.apache.ibatis.reflection.MetaObject;
-import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Configuration;
 
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import java.time.LocalDateTime;
 
-@Component
+@Configuration
 public class MyBatisPlusConfig implements MetaObjectHandler {
     // @TimeField(fill = FieldFill.INSERT) 标注的字段在此方法中管理
     @Override

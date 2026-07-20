@@ -15,7 +15,7 @@ spring:
 
   data:
     redis:
-      host: localhost
+      host: 192.168.124.3
       port: 6379
 
   output:
@@ -35,7 +35,7 @@ spring:
     google:
       genai:
         embedding:
-          api-key: 
+          api-key:
           text:
             options:
               model: gemini-embedding-2

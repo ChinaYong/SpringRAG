@@ -77,7 +77,8 @@ CREATE TABLE `user_file_info` (
     `update_time` DATETIME COMMENT '更新时间',
     PRIMARY KEY (`id`),
     INDEX `idx_user_id` (`user_id`),
-    INDEX `idx_file_id` (`file_id`)
+    INDEX `idx_file_id` (`file_id`),
+    Unique Key 'uk_user_file' (user_id, file_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='用户文件信息表';
 
 DROP TABLE IF EXISTS `model_provider`;

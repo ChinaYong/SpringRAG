@@ -1,43 +1,51 @@
 package com.aiplus.spring_rag.service;
 
-import java.nio.charset.Charset;
+import com.aiplus.spring_rag.dto.FileHandleDTO;
+
+import lombok.RequiredArgsConstructor;
+
 import java.util.List;
 import java.util.Map;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.TextReader;
+import org.springframework.ai.reader.markdown.MarkdownDocumentReader;
+import org.springframework.ai.reader.markdown.config.MarkdownDocumentReaderConfig;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 
-import com.aiplus.spring_rag.dto.FileHandleDTO;
-import com.aiplus.spring_rag.dto.FileUploadDTO;
-
 /**
- * 文件的解析
+ * 文件的解析、分块
  */
 @Component
+@RequiredArgsConstructor
 public class FileParser {
 
+    private final MarkdownDocumentReaderConfig markdownDocumentReaderConfig;
+
     // text 文件解析
-    public static List<Document> parseTextFile(FileHandleDTO fileHandleDTO) {
+    public List<Document> parseTextFile(FileHandleDTO fileHandleDTO) {
+        // 读取文件
         Resource resource = new FileSystemResource(fileHandleDTO.getFilePath());
         TextReader textReader = new TextReader(resource);
 
-        textReader.setCharset(Charset.forName("UTF-8"));
-
-        // TODO：在此处设置每个文件的自定义的公共元数据
-        FileUploadDTO fileUploadDTO = fileHandleDTO.getFileUploadDTO();
+        // 注入分块公共的元数据
         Map<String, Object> customMetadata = textReader.getCustomMetadata();
-        customMetadata.put("user_id", fileUploadDTO.getUserId().toString());
-        customMetadata.put("file_name", fileUploadDTO.getFile().getOriginalFilename());
         customMetadata.put("file_id", fileHandleDTO.getFileId());
-
+        customMetadata.put("file_path", fileHandleDTO.getFilePath()); // Spring AI 在填充 source 元数据，存放文件路径，但是是以 file 开头的
+        customMetadata.put("user_id", fileHandleDTO.getFileUploadDTO().getUserId());
+        customMetadata.put("file_name", fileHandleDTO.getFileUploadDTO().getFile().getOriginalFilename());
         return textReader.read();
-
     }
 
+    // md 文件解析
+    public List<Document> parseMarkdownFile(FileHandleDTO fileHandleDTO) {
+        Resource resource = new FileSystemResource(fileHandleDTO.getFilePath());
+        MarkdownDocumentReader markdownDocumentReader = new MarkdownDocumentReader(
+                resource,
+                markdownDocumentReaderConfig);
+        return markdownDocumentReader.read();
+    }
     // pdf 文件解析
-    
-
 }
