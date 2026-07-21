@@ -2,12 +2,16 @@ package com.aiplus.spring_rag.service;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import com.aiplus.spring_rag.dto.FileProgressEvent;
+import com.aiplus.spring_rag.dto.UploadTasksEvent;
 import com.aiplus.spring_rag.manager.SseEmitterManager;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,12 +24,17 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class FileProgressService {
 
+    private final UploadTasksEvent uploadTasksEvent;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
-    private static final String KEY_PREFIX = "file:progress:";
+    private static final String FILE_PROGRESS_KEY_PREFIX = "file:progress:";
+    private static final String FILE_TASK_KEY_PREFIX = "file:tasks:";
+    private static final String UPLOAD_TASKS_KEY_PREFIX = "upload:tasks:";
+
     private final SseEmitterManager sseEmitterManager;
 
-    public void report(
+    // 上传文件进度上报与更新
+    public void reportWithFile(
             String taskId,
             Integer userId,
             Integer fileId,
@@ -33,28 +42,33 @@ public class FileProgressService {
             String stage,
             int progress,
             String message) {
-        String redisKey = buildKey(taskId);
+        String redisUploadKey = buildUploadKey(taskId);
+        String taskUserJson = stringRedisTemplate.opsForValue().get(redisUploadKey);
 
-        String oldJson = stringRedisTemplate.opsForValue().get(redisKey);
+        if (taskUserJson == null) {
+            throw new RuntimeException("上传任务不存在或已过期");
+        }
+
+        UploadTasksEvent taskUserEvent = fromJson(taskUserJson, UploadTasksEvent.class);
+        if (!taskUserEvent.userId().equals(userId)) {
+            throw new RuntimeException("无权操作该上传任务");
+        }
+
+        String redisProgressKey = buildProgressKey(fileId);
+        String redisTasksKey = buildTasksKey(fileId);
+
+        Set<String> tasksSet = stringRedisTemplate.opsForSet().members(redisTasksKey);
+        String oldJson = stringRedisTemplate.opsForValue().get(redisProgressKey);
 
         if (oldJson == null) {
             throw new RuntimeException("文件处理任务不存在或已过期");
         }
 
-        FileProgressEvent oldEvent = fromJson(oldJson);
-
-        if (!oldEvent.userId().equals(userId)) {
-            throw new RuntimeException("无权操作该文件处理任务");
+        if (!tasksSet.contains(taskId)) {
+            throw new RuntimeException("任务未绑定文件");
         }
 
-        if (oldEvent.fileId() != null
-                && !oldEvent.fileId().equals(fileId)) {
-            throw new RuntimeException("该任务已经绑定文件，不能重复绑定");
-        }
-
-        if (fileId == null) {
-            fileId = oldEvent.fileId();
-        }
+        FileProgressEvent oldEvent = fromJson(oldJson, FileProgressEvent.class);
 
         if (status == null) {
             status = oldEvent.status();
@@ -73,9 +87,6 @@ public class FileProgressService {
         }
 
         FileProgressEvent event = new FileProgressEvent(
-                taskId,
-                userId.intValue(),
-                fileId,
                 status,
                 stage,
                 progress,
@@ -85,8 +96,20 @@ public class FileProgressService {
         stringRedisTemplate
                 .opsForValue()
                 .set(
-                        redisKey,
+                        redisProgressKey,
                         toJson(event),
+                        Duration.ofHours(2));
+
+        UploadTasksEvent uploadTasksEvent = new UploadTasksEvent(
+                userId,
+                fileId,
+                status,
+                stage);
+        stringRedisTemplate
+                .opsForValue()
+                .set(
+                        redisUploadKey,
+                        toJson(uploadTasksEvent),
                         Duration.ofHours(2));
 
         sseEmitterManager.send(taskId, event);
@@ -100,25 +123,19 @@ public class FileProgressService {
 
         for (int i = 0; i < 5; i++) {
             String taskId = UUID.randomUUID().toString();
-            String redisKey = buildKey(taskId);
+            String redisKey = buildUploadKey(taskId);
 
-            FileProgressEvent event = new FileProgressEvent(
-                    taskId,
+            UploadTasksEvent event = new UploadTasksEvent(
                     userId.intValue(),
                     null,
                     "PENDING",
-                    "CREATED",
-                    0,
-                    "文件处理任务已创建",
-                    LocalDateTime.now());
-
-            String json = toJson(event);
+                    "CREATED");
 
             Boolean created = stringRedisTemplate
                     .opsForValue()
                     .setIfAbsent(
                             redisKey,
-                            json,
+                            toJson(event),
                             Duration.ofHours(2));
 
             if (Boolean.TRUE.equals(created)) {
@@ -129,17 +146,15 @@ public class FileProgressService {
         throw new RuntimeException("文件处理任务创建失败");
     }
 
-    private FileProgressEvent fromJson(String json) {
+    private <T> T fromJson(String json, Class<T> T) {
         try {
-            return objectMapper.readValue(
-                    json,
-                    FileProgressEvent.class);
+            return objectMapper.readValue(json, T);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Redis 文件进度 JSON 解析失败", e);
         }
     }
 
-    private String toJson(FileProgressEvent event) {
+    private <T> String toJson(T event) {
         try {
             String json = objectMapper.writeValueAsString(event);
             log.info(json);
@@ -149,61 +164,31 @@ public class FileProgressService {
         }
     }
 
-    private String buildKey(String taskId) {
-        return KEY_PREFIX + taskId;
+    private String buildProgressKey(Integer fileId) {
+        return FILE_PROGRESS_KEY_PREFIX + fileId;
     }
 
-    /**
-     * 将生成的文件 ID 绑定到 Task
-     * TODO： 考虑删除
-     */
-    public FileProgressEvent bindFile(Integer userId, String taskId, Integer fileId) {
-        String redisKey = buildKey(taskId);
+    private String buildTasksKey(Integer fileId) {
+        return FILE_TASK_KEY_PREFIX + fileId;
+    }
 
-        String json = stringRedisTemplate.opsForValue().get(redisKey);
+    private String buildUploadKey(String taskId) {
+        return UPLOAD_TASKS_KEY_PREFIX + taskId;
+    }
+
+    public boolean judgeOwnedTask(String taskId, Integer userId) {
+        String json = stringRedisTemplate.opsForValue().get(buildUploadKey(taskId));
 
         if (json == null) {
             throw new RuntimeException("文件处理任务不存在或已过期");
         }
 
-        FileProgressEvent oldEvent = fromJson(json);
-
-        if (!oldEvent.userId().equals(userId)) {
-            throw new RuntimeException("无权操作该文件处理任务");
-        }
-
-        if (oldEvent.fileId() != null) {
-            throw new RuntimeException("该任务已经绑定文件，不能重复绑定");
-        }
-
-        FileProgressEvent event = new FileProgressEvent(
-                oldEvent.taskId(),
-                oldEvent.userId(),
-                fileId,
-                "PROCESSING",
-                "STORED",
-                15,
-                "文件保存完成，准备解析",
-                LocalDateTime.now());
-
-        stringRedisTemplate.opsForValue().set(redisKey, toJson(event), Duration.ofHours(2));
-
-        return event;
-    }
-
-    public FileProgressEvent getOwnedTask(String taskId, Integer userId) {
-        String json = stringRedisTemplate.opsForValue().get(buildKey(taskId));
-
-        if (json == null) {
-            throw new RuntimeException("文件处理任务不存在或已过期");
-        }
-
-        FileProgressEvent event = fromJson(json);
+        UploadTasksEvent event = fromJson(json, UploadTasksEvent.class);
 
         if (!event.userId().equals(userId)) {
             throw new RuntimeException("无权操作该文件处理任务");
         }
 
-        return event;
+        return true;
     }
 }

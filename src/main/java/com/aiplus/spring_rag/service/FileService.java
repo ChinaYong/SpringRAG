@@ -19,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -81,34 +82,61 @@ public class FileService {
         }
 
         /**
-         * 根据文件 SHA-256 重新存储文件并删除临时文件
+         * 先将文件存储信息保存到到数据库
          */
         FileStorage fileStorage = new FileStorage();
+        boolean newFile = false;
 
         // 检查 SHA-256 是否为空
         if (sha256Hash == null || sha256Hash.isBlank()) {
             throw new RuntimeException("SHA-256 计算异常");
         }
 
-        // 分析是否存在相同的文件，如果存在则不再存储，直接引用即可。
-        FileStorage existingFileStorage = fileStorageService.getOne(
-                new QueryWrapper<FileStorage>().eq("sha256", sha256Hash),
-                false);
-        if (existingFileStorage != null) {
+        fileStorage.setSha256(sha256Hash);
+
+        try {
+            newFile = fileStorageService.save(fileStorage);
+        } catch (DuplicateKeyException e) {
+            // 文件已存在，直接引用
+            log.info("文件已存在，直接引用");
+            fileStorage = fileStorageService.getOne(
+                    new QueryWrapper<FileStorage>().eq("sha256", sha256Hash),
+                    false);
+        }
+
+        if (!Boolean.TRUE.equals(newFile)) {
             log.info("文件已存在，直接引用，无需重复存储");
 
             // 更新引用计数
             boolean refAdded = fileStorageService
                     .lambdaUpdate()
-                    .eq(FileStorage::getId, existingFileStorage.getId())
+                    .eq(FileStorage::getId, fileStorage.getId())
                     .setSql("ref_count = ref_count + 1")
                     .set(FileStorage::getUpdateTime, LocalDateTime.now())
                     .update();
 
-            fileStorage = refAdded ? existingFileStorage
-                    : storeFileAndDeleteTemp(
-                            tempFilePath, sha256Hash, fileUploadDTO.getFile());
+            // 最多等文件存储 10s
+            int i = 0;
+            for (; i < 10; i++) {
+                fileStorage = fileStorageService
+                        .getOne(
+                                new QueryWrapper<FileStorage>().eq("sha256", sha256Hash),
+                                false);
+                if (fileStorage.getStoragePath() != null) {
+                    break;
+                } else {
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        log.error("线程等待中断", e);
+                        throw new RuntimeException("线程等待中断");
+                    }
+                }
+            }
 
+            if (i == 10) {
+                throw new RuntimeException("文件存储超时，请重试");
+            }
         } else {
             fileStorage = storeFileAndDeleteTemp(tempFilePath, sha256Hash, fileUploadDTO.getFile());
         }
