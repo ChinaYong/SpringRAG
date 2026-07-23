@@ -36,7 +36,7 @@ public class FileProgressController {
 
     @GetMapping(path = "/tasks/{taskId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter subscribe(@PathVariable String taskId, @RequestAttribute("userId") Integer userId) {
-        fileProgressService.getOwnedTask(taskId, userId);
+        fileProgressService.judgeOwnedTask(taskId, userId);
         SseEmitter emitter = sseEmitterManager.register(taskId);
 
         /**
@@ -46,7 +46,7 @@ public class FileProgressController {
          * 此时SSE 连接不存在（没有建立连接或前台刷新），所以需要在重新注册后，再次发送一次事件
          * 到前台，以避免进度丢失（尤其是已完成的进度）
          */
-        FileProgressEvent latestEvent = fileProgressService.getOwnedTask(taskId, userId);
+        FileProgressEvent latestEvent = fileProgressService.getLatestEvent(taskId);
 
         sseEmitterManager.send(taskId, latestEvent);
 

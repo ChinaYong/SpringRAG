@@ -3,6 +3,7 @@ package com.aiplus.spring_rag.service;
 import com.aiplus.spring_rag.dto.FileHandleDTO;
 import com.aiplus.spring_rag.dto.FileUploadDTO;
 import com.aiplus.spring_rag.dto.FileUploadResponseDTO;
+import com.aiplus.spring_rag.dto.UploadTasksEvent;
 import com.aiplus.spring_rag.entity.FileStorage;
 import com.aiplus.spring_rag.utils.FileUtils;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -20,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -27,6 +29,8 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 @Slf4j
 public class FileService {
+
+    private final UploadTasksEvent uploadTasksEvent;
 
     @Value("${file.storage.base-path}")
     private Path basePath;
@@ -43,6 +47,8 @@ public class FileService {
     private final AgentService agentService;
 
     private final FileProgressService fileProgressService;
+
+    private final StringRedisTemplate stringRedisTemplate;
 
     /**
      * 上传文件通用处理
@@ -141,9 +147,11 @@ public class FileService {
             fileStorage = storeFileAndDeleteTemp(tempFilePath, sha256Hash, fileUploadDTO.getFile());
         }
 
-        fileProgressService.report(
-                fileUploadDTO.getTaskId(),
-                fileUploadDTO.getUserId(),
+        // Redis: 存储 fileId 与 taskId 的关系
+        String redisTasksKey = fileProgressService.buildTasksKey(fileStorage.getId());
+        stringRedisTemplate.opsForSet().add(redisTasksKey, fileUploadDTO.getTaskId());
+
+        fileProgressService.reportWithFile(
                 fileStorage.getId(),
                 "PROCESSING",
                 "STORED",
@@ -171,14 +179,14 @@ public class FileService {
         if (fileStorage.getVectorizedStatus() == 2) {
             log.info("文件已向量化，无需重复处理");
             fileUploadResponseDTO.setStatus("success");
-            fileProgressService.report(
-                    fileUploadDTO.getTaskId(),
-                    fileUploadDTO.getUserId(),
+            fileProgressService.reportWithFile(
                     fileStorage.getId(),
                     "SUCCESS",
                     "COMPLETED",
                     100,
                     "向量化完成");
+
+            stringRedisTemplate.opsForSet().remove(redisTasksKey, fileUploadDTO.getTaskId());
             return fileUploadResponseDTO;
         }
 
@@ -188,14 +196,13 @@ public class FileService {
             fileUploadResponseDTO.setStatus("processing");
 
             // TODO：如果其他用户上传了相同的文件，那么省去重复处理后，就需要将处理进度同步，或者降级成前端轮询监测进度
-            fileProgressService.report(
-                    fileUploadDTO.getTaskId(),
-                    fileUploadDTO.getUserId(),
+            fileProgressService.reportWithFile(
                     fileStorage.getId(),
                     "PROCESSING",
                     "PARSING",
                     50,
                     "文件处理中");
+
             return fileUploadResponseDTO;
         }
 
@@ -208,6 +215,8 @@ public class FileService {
         fileHandleService.handle(fileHandleDTO);
 
         fileUploadResponseDTO.setStatus("processing");
+
+        stringRedisTemplate.opsForSet().remove(redisTasksKey, fileUploadDTO.getTaskId());
 
         return fileUploadResponseDTO;
     }
