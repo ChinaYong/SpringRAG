@@ -15,6 +15,7 @@ import com.aiplus.spring_rag.dto.UploadTasksEvent;
 import com.aiplus.spring_rag.manager.SseEmitterManager;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.genai.types.File;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +26,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class FileProgressService {
 
-    private final UploadTasksEvent uploadTasksEvent;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 
@@ -41,74 +41,69 @@ public class FileProgressService {
     // 上传文件进度上报与更新
     public void reportWithFile(
             @NonNull Integer fileId,
-            String status,
-            String stage,
-            int progress,
-            String message) {
+            @NonNull String status,
+            @NonNull String stage,
+            @NonNull Integer progress,
+            @NonNull String message) {
+        String progressKey = buildProgressKey(fileId);
+        String tasksKey = buildTasksKey(fileId);
+
+        FileProgressEvent event = new FileProgressEvent(
+                status,
+                stage,
+                progress,
+                message,
+                LocalDateTime.now());
+
+        // 先保存最新的文件处理进度快照
+        stringRedisTemplate
+                .opsForValue()
+                .set(
+                        progressKey,
+                        toJson(event),
+                        Duration.ofHours(2));
+
+        // 查找需要广播的 task 集合
         Set<String> tasks = stringRedisTemplate.opsForSet().members(buildTasksKey(fileId));
+        boolean terminal = "SUCCESS".equals(status) || "FAILED".equals(status);
 
-        for (String taskId : tasks) {
-            // 获取任务关联的用户Id
-            Integer userId = fromJson(stringRedisTemplate.opsForValue().get(buildUploadKey(taskId)),
-                    UploadTasksEvent.class).userId();
+        if (tasks != null) {
+            for (String taskId : tasks) {
+                String uploadKey = buildUploadKey(taskId);
+                String uploadJson = stringRedisTemplate.opsForValue().get(uploadKey);
 
-            String redisProgressKey = buildProgressKey(fileId);
-            String oldJson = stringRedisTemplate.opsForValue().get(redisProgressKey);
+                if (uploadJson == null) {
+                    // 清除失效的任务
+                    stringRedisTemplate.opsForSet().remove(tasksKey, taskId);
+                    continue;
+                }
 
-            if (oldJson == null) {
-                throw new RuntimeException("文件处理任务不存在或已过期");
+                UploadTasksEvent task = fromJson(uploadJson, UploadTasksEvent.class);
+                UploadTasksEvent updatedTask = new UploadTasksEvent(
+                        task.userId(),
+                        fileId,
+                        status,
+                        stage);
+
+                stringRedisTemplate.opsForValue().set(
+                        uploadKey,
+                        toJson(updatedTask),
+                        Duration.ofHours(2));
+
+                sseEmitterManager.send(taskId, event);
+
+                if (terminal) {
+                    sseEmitterManager.complete(taskId);
+                }
             }
+        }
 
-            FileProgressEvent oldEvent = fromJson(oldJson, FileProgressEvent.class);
-
-            if (status == null) {
-                status = oldEvent.status();
-            }
-
-            if (stage == null) {
-                stage = oldEvent.stage();
-            }
-
-            if (progress == 0) {
-                progress = oldEvent.progress();
-            }
-
-            if (message == null) {
-                message = oldEvent.message();
-            }
-
-            FileProgressEvent event = new FileProgressEvent(
-                    status,
-                    stage,
-                    progress,
-                    message,
-                    LocalDateTime.now());
-
-            stringRedisTemplate
-                    .opsForValue()
-                    .set(
-                            redisProgressKey,
-                            toJson(event),
-                            Duration.ofHours(2));
-
-            String redisUploadKey = buildUploadKey(taskId);
-            UploadTasksEvent uploadTasksEvent = new UploadTasksEvent(
-                    userId,
-                    fileId,
-                    status,
-                    stage);
-            stringRedisTemplate
-                    .opsForValue()
-                    .set(
-                            redisUploadKey,
-                            toJson(uploadTasksEvent),
-                            Duration.ofHours(2));
-
-            sseEmitterManager.send(taskId, event);
-
-            if ("SUCCESS".equals(status) || "FAILED".equals(status)) {
-                sseEmitterManager.complete(taskId);
-            }
+        if (terminal) {
+            stringRedisTemplate.delete(tasksKey);
+        } else {
+            stringRedisTemplate.expire(
+                    tasksKey,
+                    Duration.ofHours(2));
         }
     }
 
@@ -186,11 +181,34 @@ public class FileProgressService {
     }
 
     public FileProgressEvent getLatestEvent(String taskId) {
-        String json = stringRedisTemplate.opsForValue().get(buildUploadKey(taskId));
-        UploadTasksEvent event = fromJson(json, UploadTasksEvent.class);
-        Integer fileId = event.fileId();
+        String uploadJson = stringRedisTemplate.opsForValue().get(buildUploadKey(taskId));
 
-        String progressJson = stringRedisTemplate.opsForValue().get(buildProgressKey(fileId));
+        if (uploadJson == null) {
+            throw new RuntimeException("文件处理任务不存在或已过期");
+        }
+
+        UploadTasksEvent task = fromJson(uploadJson, UploadTasksEvent.class);
+
+        if (task.fileId() == null) {
+            return new FileProgressEvent(
+                    "PENDING",
+                    "CREATED",
+                    0,
+                    "文件处理未开始",
+                    LocalDateTime.now());
+        }
+
+        String progressJson = stringRedisTemplate.opsForValue().get(buildProgressKey(task.fileId()));
+
+        if (progressJson == null) {
+            return new FileProgressEvent(
+                    task.status(),
+                    task.stage(),
+                    0,
+                    "等待文件处理进度",
+                    LocalDateTime.now());
+        }
+
         return fromJson(progressJson, FileProgressEvent.class);
     }
 }

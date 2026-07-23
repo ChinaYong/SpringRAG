@@ -3,7 +3,6 @@ package com.aiplus.spring_rag.service;
 import com.aiplus.spring_rag.dto.FileHandleDTO;
 import com.aiplus.spring_rag.dto.FileUploadDTO;
 import com.aiplus.spring_rag.dto.FileUploadResponseDTO;
-import com.aiplus.spring_rag.dto.UploadTasksEvent;
 import com.aiplus.spring_rag.entity.FileStorage;
 import com.aiplus.spring_rag.utils.FileUtils;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -29,8 +28,6 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 @Slf4j
 public class FileService {
-
-    private final UploadTasksEvent uploadTasksEvent;
 
     @Value("${file.storage.base-path}")
     private Path basePath;
@@ -87,27 +84,36 @@ public class FileService {
             throw new RuntimeException("不支持的文件类型！");
         }
 
-        /**
-         * 先将文件存储信息保存到到数据库
-         */
-        FileStorage fileStorage = new FileStorage();
-        boolean newFile = false;
-
         // 检查 SHA-256 是否为空
         if (sha256Hash == null || sha256Hash.isBlank()) {
             throw new RuntimeException("SHA-256 计算异常");
         }
 
-        fileStorage.setSha256(sha256Hash);
+        /**
+         * 先插入一条只包含 SHA-256 的占位记录。
+         * 数据库中的 SHA-256 唯一索引负责决定哪个并发请求是新文件的存储者。
+         */
+        FileStorage reserved = new FileStorage();
+        reserved.setSha256(sha256Hash);
+        reserved.setRefCount(1);
+        reserved.setVectorizedStatus((short) 0);
 
+        boolean newFile;
         try {
-            newFile = fileStorageService.save(fileStorage);
+            newFile = fileStorageService.save(reserved);
+            if (!newFile) {
+                throw new RuntimeException("文件存储占位记录创建失败");
+            }
         } catch (DuplicateKeyException e) {
-            // 文件已存在，直接引用
-            log.info("文件已存在，直接引用");
-            fileStorage = fileStorageService.getOne(
+            // 唯一键冲突说明其他请求已经为相同 SHA-256 创建了记录。
+            newFile = false;
+            reserved = fileStorageService.getOne(
                     new QueryWrapper<FileStorage>().eq("sha256", sha256Hash),
                     false);
+
+            if (reserved == null) {
+                throw new RuntimeException("重复文件记录查询失败", e);
+            }
         }
 
         if (!Boolean.TRUE.equals(newFile)) {
@@ -116,24 +122,31 @@ public class FileService {
             // 更新引用计数
             boolean refAdded = fileStorageService
                     .lambdaUpdate()
-                    .eq(FileStorage::getId, fileStorage.getId())
+                    .eq(FileStorage::getId, reserved.getId())
                     .setSql("ref_count = ref_count + 1")
                     .set(FileStorage::getUpdateTime, LocalDateTime.now())
                     .update();
 
+            if (!refAdded) {
+                throw new RuntimeException("文件引用计数更新失败");
+            }
+
             // 最多等文件存储 10s
             int i = 0;
             for (; i < 10; i++) {
-                fileStorage = fileStorageService
+                reserved = fileStorageService
                         .getOne(
                                 new QueryWrapper<FileStorage>().eq("sha256", sha256Hash),
                                 false);
-                if (fileStorage.getStoragePath() != null) {
+
+                if (reserved.getStoragePath() != null
+                        && !reserved.getStoragePath().isBlank()) {
                     break;
                 } else {
                     try {
                         Thread.sleep(1000);
                     } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
                         log.error("线程等待中断", e);
                         throw new RuntimeException("线程等待中断");
                     }
@@ -143,20 +156,42 @@ public class FileService {
             if (i == 10) {
                 throw new RuntimeException("文件存储超时，请重试");
             }
+
+            // 重复文件直接复用正式文件，本次上传产生的临时文件不再需要。
+            deleteTempFile(tempFilePath);
         } else {
-            fileStorage = storeFileAndDeleteTemp(tempFilePath, sha256Hash, fileUploadDTO.getFile());
+            try {
+                reserved = storeFileAndDeleteTemp(
+                        reserved,
+                        tempFilePath,
+                        sha256Hash,
+                        fileUploadDTO.getFile());
+            } catch (RuntimeException e) {
+                /*
+                 * 新文件存储失败时删除尚未完成的占位记录，
+                 * 否则后续相同 SHA-256 的上传会一直等待 storage_path。
+                 */
+                fileStorageService.remove(
+                        new QueryWrapper<FileStorage>()
+                                .eq("id", reserved.getId())
+                                .isNull("storage_path"));
+                throw e;
+            }
+            // reportWithFile 会先保存文件级最新快照，再向该文件的所有 task 广播。
+            fileProgressService.reportWithFile(
+                    reserved.getId(),
+                    "PROCESSING",
+                    "STORED",
+                    15,
+                    "文件保存成功");
         }
+
+        // 从这里开始，文件记录已经包含完整的正式存储信息。
+        FileStorage fileStorage = reserved;
 
         // Redis: 存储 fileId 与 taskId 的关系
         String redisTasksKey = fileProgressService.buildTasksKey(fileStorage.getId());
         stringRedisTemplate.opsForSet().add(redisTasksKey, fileUploadDTO.getTaskId());
-
-        fileProgressService.reportWithFile(
-                fileStorage.getId(),
-                "PROCESSING",
-                "STORED",
-                15,
-                "文件保存成功");
 
         // 保存 user_file_info 表的记录
         userFileInfoService.saveUserFileRef(fileUploadDTO.getUserId(), fileStorage.getId());
@@ -176,7 +211,7 @@ public class FileService {
         fileUploadResponseDTO.setFilePath(fileStorage.getStoragePath());
 
         // 文件已向量化，无需重复处理
-        if (fileStorage.getVectorizedStatus() == 2) {
+        if (!newFile && fileStorage.getVectorizedStatus() == 2) {
             log.info("文件已向量化，无需重复处理");
             fileUploadResponseDTO.setStatus("success");
             fileProgressService.reportWithFile(
@@ -191,17 +226,9 @@ public class FileService {
         }
 
         // 文件在处理中，等待处理完成
-        if (fileStorage.getVectorizedStatus() == 1) {
+        if (!newFile || fileStorage.getVectorizedStatus() == 1) {
             log.info("文件正在处理中，等待文件处理完成");
             fileUploadResponseDTO.setStatus("processing");
-
-            // TODO：如果其他用户上传了相同的文件，那么省去重复处理后，就需要将处理进度同步，或者降级成前端轮询监测进度
-            fileProgressService.reportWithFile(
-                    fileStorage.getId(),
-                    "PROCESSING",
-                    "PARSING",
-                    50,
-                    "文件处理中");
 
             return fileUploadResponseDTO;
         }
@@ -215,8 +242,6 @@ public class FileService {
         fileHandleService.handle(fileHandleDTO);
 
         fileUploadResponseDTO.setStatus("processing");
-
-        stringRedisTemplate.opsForSet().remove(redisTasksKey, fileUploadDTO.getTaskId());
 
         return fileUploadResponseDTO;
     }
@@ -326,11 +351,12 @@ public class FileService {
         return sha256Hash;
     }
 
-    // 将临时文件迁移到目的地
-    private FileStorage storeFileAndDeleteTemp(Path tempFilePath, String sha256Hash, MultipartFile file) {
-
-        FileStorage fileStorage = new FileStorage();
-
+    // 将临时文件迁移到目的地，并补全之前创建的数据库占位记录
+    private FileStorage storeFileAndDeleteTemp(
+            FileStorage reserved,
+            Path tempFilePath,
+            String sha256Hash,
+            MultipartFile file) {
         // 文件不存在，存储文件
         String realPath = getStoragePathBySha256(
                 sha256Hash,
@@ -339,15 +365,44 @@ public class FileService {
         // 将文件存储到最终路径并删除临时文件
         streamFileTransfer(tempFilePath, Path.of(realPath));
 
-        // 保存文件信息到数据库
-        fileStorage.setSha256(sha256Hash);
-        fileStorage.setStoragePath(realPath);
-        fileStorage.setSize(file.getSize());
-        fileStorage.setExtension(FileUtils.getFileExtension(realPath));
-        fileStorage.setRefCount(1);
-        fileStorage.setVectorizedStatus((short) 0); // 初始状态为未向量化
-        fileStorageService.save(fileStorage);
+        /*
+         * 只更新文件存储字段，不整体 updateById(reserved)。
+         * 在正式文件写入期间，其他重复上传可能已经增加了 ref_count；
+         * 局部更新可以避免用 reserved 中的旧值覆盖最新引用计数。
+         */
+        boolean updated = fileStorageService
+                .lambdaUpdate()
+                .eq(FileStorage::getId, reserved.getId())
+                .isNull(FileStorage::getStoragePath)
+                .set(FileStorage::getStoragePath, realPath)
+                .set(FileStorage::getSize, file.getSize())
+                .set(
+                        FileStorage::getExtension,
+                        FileUtils.getFileExtension(realPath))
+                .set(FileStorage::getUpdateTime, LocalDateTime.now())
+                .update();
 
-        return fileStorage;
+        if (!updated) {
+            throw new RuntimeException("文件存储记录更新失败");
+        }
+
+        FileStorage stored = fileStorageService.getById(reserved.getId());
+        if (stored == null) {
+            throw new RuntimeException("文件存储记录不存在");
+        }
+
+        return stored;
+    }
+
+    /**
+     * 删除当前上传产生的临时文件。
+     * 这里只处理临时路径，不会删除 SHA-256 对应的共享正式文件。
+     */
+    private void deleteTempFile(Path tempFilePath) {
+        try {
+            Files.deleteIfExists(tempFilePath);
+        } catch (IOException e) {
+            log.warn("重复文件的临时文件清理失败 path={}", tempFilePath, e);
+        }
     }
 }

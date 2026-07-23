@@ -57,9 +57,9 @@ DROP TABLE IF EXISTS `file_info`;
 CREATE TABLE `file_storage` (
     `id` INT AUTO_INCREMENT COMMENT '文件存储ID',
     `sha256` VARCHAR(64) NOT NULL COMMENT '文件 SHA-256',
-    `storage_path` VARCHAR(255) NOT NULL COMMENT '基于 SHA-256 的存储路径',
-    `size` BIGINT NOT NULL COMMENT '文件大小（字节）',
-    `extension` VARCHAR(10) NOT NULL COMMENT '文件真实扩展名',
+    `storage_path` VARCHAR(255) COMMENT '基于 SHA-256 的存储路径',
+    `size` BIGINT COMMENT '文件大小（字节）',
+    `extension` VARCHAR(10) COMMENT '文件真实扩展名',
     `ref_count` INT NOT NULL DEFAULT 1 COMMENT '文件引用计数（同一文件被多次引用时累加）',
     `vectorized_status` TINYINT NOT NULL DEFAULT 0 COMMENT '向量化状态（0:待解析 1:解析中 2:已完成 3:失败）',
     `create_time` DATETIME COMMENT '创建时间',

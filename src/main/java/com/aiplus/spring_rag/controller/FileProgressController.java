@@ -46,15 +46,27 @@ public class FileProgressController {
          * 此时SSE 连接不存在（没有建立连接或前台刷新），所以需要在重新注册后，再次发送一次事件
          * 到前台，以避免进度丢失（尤其是已完成的进度）
          */
-        FileProgressEvent latestEvent = fileProgressService.getLatestEvent(taskId);
+        try {
+            FileProgressEvent latestEvent = fileProgressService.getLatestEvent(taskId);
 
-        sseEmitterManager.send(taskId, latestEvent);
+            sseEmitterManager.send(taskId, latestEvent);
 
-        if ("SUCCESS".equals(latestEvent.status()) || "FAILED".equals(latestEvent.status())) {
+            if (isTerminal(latestEvent.status())) {
+                sseEmitterManager.complete(taskId);
+            }
+
+            return emitter;
+        } catch (RuntimeException e) {
             sseEmitterManager.complete(taskId);
+            throw e;
         }
-
-        return emitter;
     }
 
+    public boolean isTerminal(String status) {
+        if ("SUCCESS".equals(status) || "FAILED".equals(status)) {
+            return true;
+        } else {
+            return false;
+        }
+    }
 }
