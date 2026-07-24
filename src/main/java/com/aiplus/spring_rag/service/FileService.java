@@ -1,8 +1,10 @@
 package com.aiplus.spring_rag.service;
 
 import com.aiplus.spring_rag.dto.FileHandleDTO;
+import com.aiplus.spring_rag.dto.FileProgressEvent;
 import com.aiplus.spring_rag.dto.FileUploadDTO;
 import com.aiplus.spring_rag.dto.FileUploadResponseDTO;
+import com.aiplus.spring_rag.dto.UploadTasksEvent;
 import com.aiplus.spring_rag.entity.FileStorage;
 import com.aiplus.spring_rag.utils.FileUtils;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -14,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -177,6 +180,9 @@ public class FileService {
                                 .isNull("storage_path"));
                 throw e;
             }
+
+            String redisTasksKey = fileProgressService.buildTasksKey(reserved.getId());
+            stringRedisTemplate.opsForSet().add(redisTasksKey, fileUploadDTO.getTaskId());
             // reportWithFile 会先保存文件级最新快照，再向该文件的所有 task 广播。
             fileProgressService.reportWithFile(
                     reserved.getId(),
@@ -189,9 +195,21 @@ public class FileService {
         // 从这里开始，文件记录已经包含完整的正式存储信息。
         FileStorage fileStorage = reserved;
 
+        String redisTasksKey = "";
         // Redis: 存储 fileId 与 taskId 的关系
-        String redisTasksKey = fileProgressService.buildTasksKey(fileStorage.getId());
-        stringRedisTemplate.opsForSet().add(redisTasksKey, fileUploadDTO.getTaskId());
+        if (!newFile) {
+            redisTasksKey = fileProgressService.buildTasksKey(fileStorage.getId());
+            stringRedisTemplate.opsForSet().add(redisTasksKey, fileUploadDTO.getTaskId());
+
+            UploadTasksEvent event = new UploadTasksEvent(
+                    fileUploadDTO.getUserId(),
+                    fileStorage.getId(),
+                    "PROCESSING",
+                    "STORED");
+
+            stringRedisTemplate.opsForValue().set(fileProgressService.buildUploadKey(fileUploadDTO.getTaskId()),
+                    fileProgressService.toJson(event), Duration.ofHours(2));
+        }
 
         // 保存 user_file_info 表的记录
         userFileInfoService.saveUserFileRef(fileUploadDTO.getUserId(), fileStorage.getId());
@@ -225,12 +243,19 @@ public class FileService {
             return fileUploadResponseDTO;
         }
 
+        String progressJson = stringRedisTemplate.opsForValue()
+                .get(fileProgressService.buildProgressKey(fileStorage.getId()));
+        FileProgressEvent progressEvent = progressJson == null ? null
+                : fileProgressService.fromJson(progressJson, FileProgressEvent.class);
+
         // 文件在处理中，等待处理完成
-        if (!newFile || fileStorage.getVectorizedStatus() == 1) {
+        if (!newFile && progressEvent != null && "PROCESSING".equals(progressEvent.status())) {
             log.info("文件正在处理中，等待文件处理完成");
             fileUploadResponseDTO.setStatus("processing");
 
             return fileUploadResponseDTO;
+        } else if (progressEvent == null) {
+            throw new RuntimeException("本该被处理的文件未被处理");
         }
 
         // 构建文件处理 DTO
@@ -239,7 +264,9 @@ public class FileService {
         fileHandleDTO.setFilePath(fileStorage.getStoragePath());
 
         // 文件处理
-        fileHandleService.handle(fileHandleDTO);
+        if (newFile) {
+            fileHandleService.handle(fileHandleDTO);
+        }
 
         fileUploadResponseDTO.setStatus("processing");
 

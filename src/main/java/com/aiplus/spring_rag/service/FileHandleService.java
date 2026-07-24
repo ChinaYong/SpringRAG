@@ -1,7 +1,6 @@
 package com.aiplus.spring_rag.service;
 
 import com.aiplus.spring_rag.dto.FileHandleDTO;
-import com.aiplus.spring_rag.dto.UploadTasksEvent;
 import com.aiplus.spring_rag.entity.FileStorage;
 import com.aiplus.spring_rag.utils.FileUtils;
 
@@ -33,7 +32,6 @@ public class FileHandleService {
 
         private final FileProgressService fileProgressService;
 
-        private final StringRedisTemplate stringRedisTemplate;
         // 解析策略
         private Map<String, Function<FileHandleDTO, List<Document>>> fileHandleMap;
 

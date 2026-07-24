@@ -211,4 +211,16 @@ public class FileProgressService {
 
         return fromJson(progressJson, FileProgressEvent.class);
     }
+
+    public void taskUserFileRef(Integer userId, Integer fileId, String taskId,
+            String status, String stage) {
+
+        UploadTasksEvent event = new UploadTasksEvent(
+                userId,
+                fileId,
+                status,
+                stage);
+
+        stringRedisTemplate.opsForValue().set(buildUploadKey(taskId), toJson(event), Duration.ofHours(2));
+    }
 }
