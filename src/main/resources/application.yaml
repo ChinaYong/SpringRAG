@@ -4,19 +4,21 @@ server:
 
 # Spring 核心配置
 spring:
+  config:
+    import: "optional:file:./secrets.properties"
+
   application:
     name: spring-rag
 
   datasource:
-    url: jdbc:mysql://localhost:3306/spring_rag?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
-    username: root
-    password: root
+    url: ${MYSQL_URL}
+    username: ${MYSQL_USERNAME}
+    password: ${MYSQL_PWD}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   data:
     redis:
-      host: 192.168.124.3
-      port: 6379
+      host: ${REDIS_HOST}
 
   output:
     ansi:
@@ -25,20 +27,30 @@ spring:
   ai:
     vectorstore:
       qdrant:
-        host: 192.168.124.3
-        port: 6333
-        api-key:
+        host: 8f6c49b8-202c-466c-b1a6-56c881420ed1.us-west-1-0.aws.cloud.qdrant.io
+        port: 6334
+        use-tls: true
+        api-key: ${QDRANT_API_KEY}
         collection-name: spring-rag
-        use-tls: false
         initialize-schema: true
 
-    google:
-      genai:
-        embedding:
-          api-key:
-          text:
-            options:
-              model: gemini-embedding-2
+    model:
+      embedding: openai
+      chat: none
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
+
+    # 使用 OpenAI 兼容协议连接 OpenRouter，凭据来自 OpenRouter。
+    openai:
+      base-url: https://openrouter.ai/api
+      api-key: ${OPENROUTER_API_KEY}
+      embedding:
+        embeddings-path: /v1/embeddings
+        options:
+          model: openai/text-embedding-3-small
 
 # 文件存储
 file:

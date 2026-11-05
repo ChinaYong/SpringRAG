@@ -35,3 +35,6 @@ build/
 
 .kilo/
 .agents/
+
+### 密钥存放 ###
+secrets.properties

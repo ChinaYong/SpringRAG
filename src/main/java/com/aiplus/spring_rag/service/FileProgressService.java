@@ -15,7 +15,6 @@ import com.aiplus.spring_rag.dto.UploadTasksEvent;
 import com.aiplus.spring_rag.manager.SseEmitterManager;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.genai.types.File;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;

@@ -25,6 +25,9 @@ public class ModelProvider {
 
     private String apiKey;
 
+    // 0: 未知 1: openai-compatible, 2: anthropic-message，3: openai-response
+    private Integer apiFormat;
+
     // mybatis-plus 将 JSON 数组映射为 List<String>
     @TableField(value = "model_list", typeHandler = JacksonTypeHandler.class)
     private List<String> models;
