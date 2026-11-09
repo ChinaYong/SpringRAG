@@ -147,7 +147,7 @@ public class FileService {
                     break;
                 } else {
                     try {
-                        Thread.sleep(1000);
+                        Thread.sleep(10000);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         log.error("线程等待中断", e);

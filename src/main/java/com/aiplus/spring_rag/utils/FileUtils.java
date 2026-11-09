@@ -122,12 +122,12 @@ public class FileUtils {
                     }
                     if (utfHead.contains(sb.toString())) {
                         return true;
-                    }
-                } else if (n > 2) {
-                    sb.append(HEX[readBuffer[i] >>> 4])
-                            .append(HEX[readBuffer[i] & 0x0f]);
-                    if (utfHead.contains(sb.toString())) {
-                        return true;
+                    } else if (n > 2) {
+                        sb.append(HEX[readBuffer[i] >>> 4])
+                                .append(HEX[readBuffer[i] & 0x0f]);
+                        if (utfHead.contains(sb.toString())) {
+                            return true;
+                        }
                     }
                 }
             }
